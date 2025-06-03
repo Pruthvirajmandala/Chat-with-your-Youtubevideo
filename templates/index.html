@@ -73,9 +73,15 @@
         alt="WebApp Logo" />
 
       <form class="fade-in-up">
-        <div class="form-check form-switch float-end mb-4">
-          <input class="form-check-input" type="checkbox" id="darkModeSwitch" name="darkmode" checked>
-          <label class="form-check-label" for="darkModeSwitch"><b>Dark Mode</b></label>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="darkModeSwitch" name="darkmode" checked>
+            <label class="form-check-label" for="darkModeSwitch"><b>Dark Mode</b></label>
+          </div>
+          <div class="d-flex align-items-center">
+            <span class="me-3">Welcome, <b>{{ current_user.username }}</b></span>
+            <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary btn-sm">Logout</a>
+          </div>
         </div>
 
         <div class="my-2 fade-in-up">
