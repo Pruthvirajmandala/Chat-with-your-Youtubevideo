@@ -22,7 +22,9 @@ $(document).ready(function () {
     });
 
     recognition.onresult = (event) => {
-      prompt.textContent = event.results[0][0].transcript;
+      if (event.results && event.results.length > 0 && event.results[0] && event.results[0].length > 0) {
+        prompt.textContent = event.results[0][0].transcript;
+      }
     };
 
     recognition.onaudioend = (event) => {
@@ -144,6 +146,9 @@ $(document).ready(function () {
           return response.text().then((errorMessage) => {
             throw new Error(errorMessage);
           });
+        }
+        if (!response.body) {
+          throw new Error("Response body is null");
         }
         const reader = response.body.getReader();
         const textDecoder = new TextDecoder();

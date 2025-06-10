@@ -5,7 +5,7 @@ from utils import load, generate
 
 app = Flask(__name__)
 app.config['STATIC_FOLDER'] = 'static'
-app.secret_key = os.getenv("SECRET_KEY")
+app.secret_key = os.getenv("SECRET_KEY") or "dev-secret-key-change-in-production"
 
 @app.route('/', methods=['GET'])
 def index():
@@ -25,8 +25,14 @@ def generate_controller():
     prompt = request.form.get('prompt')
     model = request.form.get('model')
     name_space = request.cookies.get('name_space')
+    
     if not name_space:
         return Response("Please load a video first", status=HTTPStatus.BAD_REQUEST)
+    if not prompt or not prompt.strip():
+        return Response("Prompt is required", status=HTTPStatus.BAD_REQUEST)
+    if not model or not model.strip():
+        return Response("Model selection is required", status=HTTPStatus.BAD_REQUEST)
+        
     return Response(generate(model, name_space, prompt))
 
 if __name__ == '__main__':

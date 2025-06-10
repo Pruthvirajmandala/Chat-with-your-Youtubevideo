@@ -21,6 +21,9 @@ load_dotenv()
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 EMBEDDINGS_MODEL = os.getenv("EMBEDDINGS_MODEL")
 
+if not EMBEDDINGS_MODEL:
+    EMBEDDINGS_MODEL = "text-embedding-ada-002"
+
 # Global variables for Pinecone client and index
 pinecone_client = None
 pinecone_index = None
@@ -83,7 +86,7 @@ def get_name_spaces():
     try:
         stats = pinecone_index.describe_index_stats()
         # Ensure to use double quotes for dictionary keys if the main string uses triple double quotes
-        return stats["namespaces"] if stats and "namespaces" in stats else {}
+        return stats.get("namespaces", {}) if stats and isinstance(stats, dict) else {}
     except Exception as e:
         print(f"Error getting namespaces from Pinecone: {e}")
         return ("error", f"Error getting namespaces: {str(e)}")
@@ -111,12 +114,15 @@ def get_transcript(video_id):
     
     # Handle both dict and FetchedTranscriptSnippet objects
     try:
+        if not transcript or len(transcript) == 0:
+            return ("error", "Transcript is empty")
+        
         if hasattr(transcript[0], 'text'):
             # FetchedTranscriptSnippet objects
-            return ("success", ' '.join(item.text for item in transcript))
+            return ("success", ' '.join(item.text for item in transcript if hasattr(item, 'text')))
         else:
             # Dictionary objects
-            return ("success", ' '.join(item['text'] for item in transcript))
+            return ("success", ' '.join(item.get('text', '') for item in transcript if isinstance(item, dict) and 'text' in item))
     except Exception as e:
         return ("error", f"Error processing transcript: {str(e)}")
 
@@ -217,6 +223,10 @@ def generate(model, name_space, question):
                 index=pinecone_index, embedding=embeddings, namespace=name_space
             )
 
+        if model not in model_map:
+            yield f"Error: Unsupported model '{model}'. Supported models: {', '.join(model_map.keys())}"
+            return
+            
         chain = (
         {"context": vector_store_instance.as_retriever(k=model_map[model]), "question": RunnablePassthrough()}
             | prompt
