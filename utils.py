@@ -15,7 +15,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.errors import NoTranscriptFound, TranscriptsDisabled, VideoUnavailable, TooManyRequests, TranscriptsFetchingError, NoTranscriptAvailable
+import youtube_transcript_api # Added for accessing youtube_transcript_api.NoTranscriptFound etc.
 import xml.etree.ElementTree
 
 load_dotenv()
@@ -98,7 +98,7 @@ def get_transcript(video_id):
     try:
         # Try to fetch the transcript directly
         transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
-    except NoTranscriptFound:
+    except youtube_transcript_api.NoTranscriptFound: # Changed
         # If no direct transcript, try to find a translatable one
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
@@ -130,24 +130,24 @@ def get_transcript(video_id):
             # So, if we reach here, successfully_translated should be True, and transcript_data should be populated.
             # The fallback check for `transcript_data is None` later will catch any unexpected scenarios.
 
-        except (TranscriptsDisabled, NoTranscriptAvailable) as e:
+        except (youtube_transcript_api.TranscriptsDisabled, youtube_transcript_api.NoTranscriptAvailable) as e: # Changed
             return ("error", f"Could not list transcripts; they are disabled or not available for video ID: {video_id}. Detail: {e}")
-        except VideoUnavailable as e:
+        except youtube_transcript_api.VideoUnavailable as e: # Changed
             return ("error", f"Could not list transcripts; video {video_id} is unavailable. Detail: {e}")
-        except TooManyRequests as e:
+        except youtube_transcript_api.TooManyRequests as e: # Changed
             return ("error", f"Could not list transcripts due to too many requests for video ID: {video_id}. Detail: {e}")
-        except TranscriptsFetchingError as e:
+        except youtube_transcript_api.TranscriptsFetchingError as e: # Changed
             return ("error", f"A specific error occurred while listing transcripts for video ID: {video_id}. Detail: {e}")
         except Exception as e: # General fallback for list_transcripts and subsequent logic
             return ("error", f"Could not list or translate transcripts for video ID: {video_id}. Unexpected error: {e}")
 
-    except (TranscriptsDisabled, NoTranscriptAvailable) as e: # Grouping similar ones
+    except (youtube_transcript_api.TranscriptsDisabled, youtube_transcript_api.NoTranscriptAvailable) as e: # Changed
         return ("error", f"Transcripts are disabled or not available for video ID: {video_id}. Detail: {e}")
-    except VideoUnavailable as e:
+    except youtube_transcript_api.VideoUnavailable as e: # Changed
         return ("error", f"Video {video_id} is unavailable. Detail: {e}")
-    except TooManyRequests as e:
+    except youtube_transcript_api.TooManyRequests as e: # Changed
         return ("error", f"Too many requests made to YouTube API for video ID: {video_id}. Please try again later. Detail: {e}")
-    except TranscriptsFetchingError as e: # A more generic API error
+    except youtube_transcript_api.TranscriptsFetchingError as e: # Changed
         return ("error", f"A specific error occurred while fetching transcripts for video ID: {video_id}. Detail: {e}")
     except xml.etree.ElementTree.ParseError as pe:
         return ("error", f"Failed to parse transcript data from YouTube for video ID {video_id}. The video's transcript format might be unexpected or corrupted. Error: {pe}")
