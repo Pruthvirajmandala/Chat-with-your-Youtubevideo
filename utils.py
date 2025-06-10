@@ -15,6 +15,8 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.errors import NoTranscriptFound, TranscriptsDisabled, VideoUnavailable, TooManyRequests, TranscriptsFetchingError, NoTranscriptAvailable
+import xml.etree.ElementTree
 
 load_dotenv()
 
@@ -96,12 +98,12 @@ def get_transcript(video_id):
     try:
         # Try to fetch the transcript directly
         transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
-    except YouTubeTranscriptApi.NoTranscriptFound:
+    except NoTranscriptFound:
         # If no direct transcript, try to find a translatable one
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            if not transcript_list:
-                return ("error", f"No transcripts available for video ID: {video_id}")
+            if not transcript_list: # Should be rare if NoTranscriptFound was for generated, but good check
+                return ("error", f"No transcripts available for video ID: {video_id} (list was empty).")
 
             potential_translatable_exists = any(ts.is_translatable for ts in transcript_list)
             successfully_translated = False
@@ -128,11 +130,30 @@ def get_transcript(video_id):
             # So, if we reach here, successfully_translated should be True, and transcript_data should be populated.
             # The fallback check for `transcript_data is None` later will catch any unexpected scenarios.
 
-        except Exception as e: # Errors from list_transcripts call itself or other unexpected issues in this block
-            return ("error", f"Could not list or translate transcripts for video ID: {video_id}. Error: {e}")
+        except (TranscriptsDisabled, NoTranscriptAvailable) as e:
+            return ("error", f"Could not list transcripts; they are disabled or not available for video ID: {video_id}. Detail: {e}")
+        except VideoUnavailable as e:
+            return ("error", f"Could not list transcripts; video {video_id} is unavailable. Detail: {e}")
+        except TooManyRequests as e:
+            return ("error", f"Could not list transcripts due to too many requests for video ID: {video_id}. Detail: {e}")
+        except TranscriptsFetchingError as e:
+            return ("error", f"A specific error occurred while listing transcripts for video ID: {video_id}. Detail: {e}")
+        except Exception as e: # General fallback for list_transcripts and subsequent logic
+            return ("error", f"Could not list or translate transcripts for video ID: {video_id}. Unexpected error: {e}")
+
+    except (TranscriptsDisabled, NoTranscriptAvailable) as e: # Grouping similar ones
+        return ("error", f"Transcripts are disabled or not available for video ID: {video_id}. Detail: {e}")
+    except VideoUnavailable as e:
+        return ("error", f"Video {video_id} is unavailable. Detail: {e}")
+    except TooManyRequests as e:
+        return ("error", f"Too many requests made to YouTube API for video ID: {video_id}. Please try again later. Detail: {e}")
+    except TranscriptsFetchingError as e: # A more generic API error
+        return ("error", f"A specific error occurred while fetching transcripts for video ID: {video_id}. Detail: {e}")
+    except xml.etree.ElementTree.ParseError as pe:
+        return ("error", f"Failed to parse transcript data from YouTube for video ID {video_id}. The video's transcript format might be unexpected or corrupted. Error: {pe}")
     except Exception as e:
         # Catch any other exceptions during the initial direct transcript fetching attempt
-        return ("error", f"Failed to retrieve transcript for video ID: {video_id}. Error: {e}")
+        return ("error", f"Failed to retrieve transcript for video ID: {video_id}. Unexpected error: {e}")
 
     if transcript_data is None:
         # This crucial fallback check catches any path where transcript_data was not successfully populated.
