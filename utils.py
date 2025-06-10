@@ -92,39 +92,58 @@ def get_name_spaces():
         return ("error", f"Error getting namespaces: {str(e)}")
 
 def get_transcript(video_id):
-
-    transcript = None
+    transcript_data = None
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-    except Exception as e:
+        # Try to fetch the transcript directly
+        transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+    except YouTubeTranscriptApi.NoTranscriptFound:
+        # If no direct transcript, try to find a translatable one
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            for transcript_obj in transcript_list:
-                if transcript_obj.is_translatable:
+            if not transcript_list:
+                return ("error", f"No transcripts available for video ID: {video_id}")
+
+            translatable_transcript_found = False
+            for ts in transcript_list:
+                if ts.is_translatable:
                     try:
-                        transcript = transcript_obj.translate('en').fetch()
+                        transcript_data = ts.translate('en').fetch()
+                        translatable_transcript_found = True
                         break
                     except Exception as e:
-                        print(e)
-        except Exception as e:
-            print(e)
+                        # Log the translation error but continue to see if other translatable options exist
+                        print(f"Could not translate transcript {ts.language} for video {video_id}: {e}")
 
-    if transcript is None:
-        return ("error", "No transcript found")
-    
-    # Handle both dict and FetchedTranscriptSnippet objects
-    try:
-        if not transcript or len(transcript) == 0:
-            return ("error", "Transcript is empty")
-        
-        if hasattr(transcript[0], 'text'):
-            # FetchedTranscriptSnippet objects
-            return ("success", ' '.join(item.text for item in transcript if hasattr(item, 'text')))
-        else:
-            # Dictionary objects
-            return ("success", ' '.join(item.get('text', '') for item in transcript if isinstance(item, dict) and 'text' in item))
+            if not translatable_transcript_found and not transcript_data: # transcript_data check in case loop was empty
+                 return ("error", f"No translatable transcripts found for video ID: {video_id}")
+            elif not transcript_data: # Handles case where loop ran, found translatable, but all translations failed
+                return ("error", f"Failed to translate any available transcript for video ID: {video_id}")
+
+        except Exception as e:
+            return ("error", f"Could not list transcripts for video ID: {video_id}. Error: {e}")
     except Exception as e:
-        return ("error", f"Error processing transcript: {str(e)}")
+        # Catch any other exceptions during transcript fetching
+        return ("error", f"Failed to retrieve transcript for video ID: {video_id}. Error: {e}")
+
+    if transcript_data is None:
+        # This case should ideally be caught by specific errors above, but as a fallback:
+        return ("error", f"No transcript could be fetched for video ID: {video_id}. Reason unknown.")
+
+    # Process the transcript_data (either directly fetched or translated)
+    try:
+        if not transcript_data or len(transcript_data) == 0:
+            return ("error", f"Transcript for video ID: {video_id} is empty.")
+        
+        # The structure of items in transcript_data (list of dicts with 'text')
+        # is the same for both get_transcript and translate().fetch()
+        processed_text = ' '.join(item['text'] for item in transcript_data if 'text' in item)
+
+        if not processed_text.strip(): # Check if joined text is just whitespace
+            return ("error", f"Processed transcript for video ID: {video_id} is empty or contains only whitespace.")
+
+        return ("success", processed_text)
+    except Exception as e:
+        return ("error", f"Error processing fetched transcript for video ID: {video_id}: {str(e)}")
 
 def upsert_transcript(data, url, name_space):
     global pinecone_index, embeddings, text_splitter
