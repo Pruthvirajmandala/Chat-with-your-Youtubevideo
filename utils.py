@@ -103,31 +103,43 @@ def get_transcript(video_id):
             if not transcript_list:
                 return ("error", f"No transcripts available for video ID: {video_id}")
 
-            translatable_transcript_found = False
-            for ts in transcript_list:
-                if ts.is_translatable:
-                    try:
-                        transcript_data = ts.translate('en').fetch()
-                        translatable_transcript_found = True
-                        break
-                    except Exception as e:
-                        # Log the translation error but continue to see if other translatable options exist
-                        print(f"Could not translate transcript {ts.language} for video {video_id}: {e}")
+            potential_translatable_exists = any(ts.is_translatable for ts in transcript_list)
+            successfully_translated = False
 
-            if not translatable_transcript_found and not transcript_data: # transcript_data check in case loop was empty
-                 return ("error", f"No translatable transcripts found for video ID: {video_id}")
-            elif not transcript_data: # Handles case where loop ran, found translatable, but all translations failed
-                return ("error", f"Failed to translate any available transcript for video ID: {video_id}")
+            if potential_translatable_exists:
+                for ts in transcript_list:
+                    if ts.is_translatable:
+                        try:
+                            transcript_data = ts.translate('en').fetch()
+                            successfully_translated = True # Mark that at least one translation succeeded
+                            break
+                        except Exception as e:
+                            # Log the translation error but continue to see if other translatable options exist
+                            print(f"Could not translate transcript {ts.language} for video {video_id}: {e}")
 
-        except Exception as e:
-            return ("error", f"Could not list transcripts for video ID: {video_id}. Error: {e}")
+                if not successfully_translated:
+                    # This means we had translatable ones, but all attempts to translate them failed.
+                    return ("error", f"Found translatable transcripts, but all translation attempts failed for video ID: {video_id}")
+            else: # No potential_translatable_exists (no scripts were marked as is_translatable)
+                return ("error", f"No translatable transcripts found for video ID: {video_id}")
+
+            # If successfully_translated is False at this point, it means no translatable scripts were found initially,
+            # which is handled by the 'else' block above.
+            # So, if we reach here, successfully_translated should be True, and transcript_data should be populated.
+            # The fallback check for `transcript_data is None` later will catch any unexpected scenarios.
+
+        except Exception as e: # Errors from list_transcripts call itself or other unexpected issues in this block
+            return ("error", f"Could not list or translate transcripts for video ID: {video_id}. Error: {e}")
     except Exception as e:
-        # Catch any other exceptions during transcript fetching
+        # Catch any other exceptions during the initial direct transcript fetching attempt
         return ("error", f"Failed to retrieve transcript for video ID: {video_id}. Error: {e}")
 
     if transcript_data is None:
-        # This case should ideally be caught by specific errors above, but as a fallback:
-        return ("error", f"No transcript could be fetched for video ID: {video_id}. Reason unknown.")
+        # This crucial fallback check catches any path where transcript_data was not successfully populated.
+        # This could be if NoTranscriptFound was raised, and then the translation logic somehow didn't populate it
+        # (e.g., no translatable transcripts found, or all translations failed and were correctly handled by returns above,
+        # but this serves as a final safety net).
+        return ("error", f"No transcript data could be obtained for video ID: {video_id} after all attempts.")
 
     # Process the transcript_data (either directly fetched or translated)
     try:
