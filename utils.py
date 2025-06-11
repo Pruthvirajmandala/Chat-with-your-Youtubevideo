@@ -14,7 +14,8 @@ except ImportError:
 from langchain_core.runnables import RunnablePassthrough
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+from xml.etree.ElementTree import ParseError
 
 load_dotenv()
 
@@ -79,36 +80,93 @@ def get_name_spaces():
         return {}
 
 def get_transcript(video_id):
+    fetched_transcript_data = None
 
-    transcript = None
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-    except Exception as e:
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            for transcript_obj in transcript_list:
-                if transcript_obj.is_translatable:
+        transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
+
+        manual_en_transcript = None
+        auto_en_transcript = None
+        other_translatable_transcripts = []
+
+        for t in transcript_list_obj:
+            if t.language_code == 'en':
+                if not t.is_generated:
+                    manual_en_transcript = t
+                else:
+                    auto_en_transcript = t
+            elif t.is_translatable:
+                other_translatable_transcripts.append(t)
+
+        # Try fetching manual English transcript first
+        if manual_en_transcript:
+            try:
+                print(f"Fetching manual English transcript for {video_id}...")
+                fetched_transcript_data = manual_en_transcript.fetch()
+                print("Successfully fetched manual English transcript.")
+            except ParseError as pe:
+                print(f"ParseError fetching manual English transcript for {video_id}: {pe}. Trying auto-generated...")
+                # Fall through to try auto-generated if ParseError
+                fetched_transcript_data = None
+            except Exception as e:
+                print(f"Error fetching manual English transcript for {video_id}: {type(e).__name__} - {e}. Trying auto-generated...")
+                # Fall through to try auto-generated for other errors too
+                fetched_transcript_data = None
+
+        # If manual failed (especially with ParseError) or wasn't found, try auto-generated English
+        if fetched_transcript_data is None and auto_en_transcript:
+            try:
+                print(f"Fetching auto-generated English transcript for {video_id}...")
+                fetched_transcript_data = auto_en_transcript.fetch()
+                print("Successfully fetched auto-generated English transcript.")
+            except Exception as e:
+                print(f"Error fetching auto-generated English transcript for {video_id}: {type(e).__name__} - {e}")
+                fetched_transcript_data = None # Ensure it's None if fetch fails
+
+        # If no English transcript was successfully fetched, try translating others
+        if fetched_transcript_data is None:
+            if other_translatable_transcripts:
+                print(f"No direct English transcript fetched for {video_id}. Trying to translate from other languages...")
+                for t_obj in other_translatable_transcripts:
                     try:
-                        transcript = transcript_obj.translate('en').fetch()
-                        break
+                        print(f"Attempting to translate {t_obj.language_code} to English for {video_id}...")
+                        fetched_transcript_data = t_obj.translate('en').fetch()
+                        print(f"Successfully translated {t_obj.language_code} to English.")
+                        break  # Use the first successful translation
                     except Exception as e:
-                        print(e)
-        except Exception as e:
-            print(e)
+                        print(f"Error translating {t_obj.language_code} for {video_id}: {type(e).__name__} - {e}")
+                        fetched_transcript_data = None # Ensure it's None if this translation fails
+            else:
+                print(f"No translatable transcripts found for {video_id} after English attempts failed.")
 
-    if transcript is None:
-        return ("error", "No transcript found")
-    
-    # Handle both dict and FetchedTranscriptSnippet objects
-    try:
-        if hasattr(transcript[0], 'text'):
-            # FetchedTranscriptSnippet objects
-            return ("success", ' '.join(item.text for item in transcript))
-        else:
-            # Dictionary objects
-            return ("success", ' '.join(item['text'] for item in transcript))
+    except (NoTranscriptFound, TranscriptsDisabled) as e:
+        print(f"Transcripts not available for {video_id}: {type(e).__name__} - {e}")
+        return ("error", "No transcript found or transcripts disabled")
     except Exception as e:
-        return ("error", f"Error processing transcript: {str(e)}")
+        # Catch-all for other unexpected errors during listing/selection
+        print(f"An unexpected error occurred during transcript processing for {video_id}: {type(e).__name__} - {e}")
+        return ("error", f"Unexpected error processing transcript: {str(e)}")
+
+    if fetched_transcript_data is None:
+        return ("error", "No transcript found after all attempts")
+    
+    # Process and join the transcript text
+    try:
+        if not fetched_transcript_data: # Should be caught by above, but as a safeguard
+             return ("error", "Fetched transcript data is empty")
+        # Ensure fetched_transcript_data is a list of dicts with 'text' keys
+        if isinstance(fetched_transcript_data, list) and \
+           all(isinstance(item, dict) and 'text' in item for item in fetched_transcript_data):
+            processed_text = ' '.join(item['text'] for item in fetched_transcript_data)
+            return ("success", processed_text)
+        else:
+            # This case might occur if the .fetch() method returns an unexpected format
+            # or if a non-list (e.g. error object accidentally assigned) gets here.
+            print(f"Unexpected transcript data format for {video_id}: {type(fetched_transcript_data)}")
+            return ("error", "Unexpected transcript data format")
+    except Exception as e:
+        print(f"Error joining transcript segments for {video_id}: {type(e).__name__} - {e}")
+        return ("error", f"Error processing transcript segments: {str(e)}")
 
 def upsert_transcript(data, url, name_space):
     try:
