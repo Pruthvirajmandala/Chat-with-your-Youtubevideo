@@ -27,7 +27,7 @@ langchain-anthropic==0.1.13
 langchain-community==0.0.29
 langchain-core==0.1.52
 langchain-openai==0.1.5
-langchain-pinecone
+langchain-pinecone==0.0.3
 langchain-text-splitters==0.0.1
 langsmith==0.1.132
 markdown-it-py==3.0.0
